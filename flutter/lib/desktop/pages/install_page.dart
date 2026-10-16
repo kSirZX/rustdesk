@@ -62,11 +62,15 @@ class _InstallPageBody extends StatefulWidget {
 
 class _InstallPageBodyState extends State<_InstallPageBody>
     with WindowListener {
+  static const _printerStatusTimeout = Duration(seconds: 5);
+
   late final TextEditingController controller;
   final RxBool startmenu = true.obs;
   final RxBool desktopicon = true.obs;
+  final RxBool printer = false.obs;
   final RxBool showProgress = false.obs;
   final RxBool btnEnabled = true.obs;
+  final RxBool cancelEnabled = true.obs;
 
   // todo move to theme.
   final buttonStyle = OutlinedButton.styleFrom(
@@ -79,12 +83,36 @@ class _InstallPageBodyState extends State<_InstallPageBody>
     final installOptions = jsonDecode(bind.installInstallOptions());
     startmenu.value = installOptions['STARTMENUSHORTCUTS'] != '0';
     desktopicon.value = installOptions['DESKTOPSHORTCUTS'] != '0';
+    printer.value = installOptions['PRINTER'] == '1';
+  }
+
+  Future<void> _loadPrinterStatus() async {
+    btnEnabled.value = false;
+    showProgress.value = true;
+    try {
+      final status = await bind
+          .mainGetCommon(key: 'is-printer-installed')
+          .timeout(_printerStatusTimeout);
+      printer.value = status == 'true';
+      if (status != 'true' && status != 'false') {
+        debugPrint('Failed to check printer installation status: $status');
+      }
+    } catch (e) {
+      printer.value = false;
+      debugPrint('Failed to check printer installation status: $e');
+    } finally {
+      showProgress.value = false;
+      btnEnabled.value = true;
+    }
   }
 
   @override
   void initState() {
     windowManager.addListener(this);
     super.initState();
+    if (printer.value) {
+      _loadPrinterStatus();
+    }
   }
 
   @override
@@ -161,7 +189,9 @@ class _InstallPageBodyState extends State<_InstallPageBody>
               ).marginSymmetric(vertical: 2 * em),
               Option(startmenu, label: 'Create start menu shortcuts')
                   .marginOnly(bottom: 7),
-              Option(desktopicon, label: 'Create desktop icon'),
+              Option(desktopicon, label: 'Create desktop icon')
+                  .marginOnly(bottom: 7),
+              Option(printer, label: 'Install {$appName} Printer'),
               Container(
                   padding: EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -213,8 +243,9 @@ class _InstallPageBodyState extends State<_InstallPageBody>
                     () => OutlinedButton.icon(
                       icon: Icon(Icons.close_rounded, size: 16),
                       label: Text(translate('Cancel')),
-                      onPressed:
-                          btnEnabled.value ? () => windowManager.close() : null,
+                      onPressed: cancelEnabled.value
+                          ? () => windowManager.close()
+                          : null,
                       style: buttonStyle,
                     ).marginOnly(right: 10),
                   ),
@@ -249,10 +280,12 @@ class _InstallPageBodyState extends State<_InstallPageBody>
   void install() {
     do_install() {
       btnEnabled.value = false;
+      cancelEnabled.value = false;
       showProgress.value = true;
       String args = '';
       if (startmenu.value) args += ' startmenu';
       if (desktopicon.value) args += ' desktopicon';
+      if (printer.value) args += ' printer';
       bind.installInstallMe(options: args, path: controller.text);
     }
 
